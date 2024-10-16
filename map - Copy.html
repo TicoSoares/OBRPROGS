@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapeamento com Grupos de Pontos Coloridos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        #canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 20px auto;
+            background-color: black;
+        }
+        #controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mapeamento com Grupos de Pontos Coloridos</h1>
+
+    <textarea id="dataInput" rows="4" cols="50" placeholder="Cole os dados aqui..."></textarea>
+    <br><br>
+    <button onclick="drawFromInput()">Gerar Mapa</button>
+
+    <div id="controls">
+        <label>
+            Tamanho dos pontos: 
+            <input type="range" id="pointSizeSlider" min="1" max="10" value="3" step="1" oninput="drawFromInput()">
+        </label>
+
+        <label>
+            Distância máxima do grupo: 
+            <input type="range" id="groupDistanceSlider" min="10" max="100" value="50" step="5" oninput="drawFromInput()">
+        </label>
+    </div>
+
+    <canvas id="canvas" width="600" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let panX = 0, panY = 0;
+        let scale = 1;
+        let rotation = 0;
+        const zoomStep = 0.1;
+        const rotationStep = 5;
+        let groupColors = {};
+
+        function degreesToRadians(degrees) {
+            return degrees * (Math.PI / 180);
+        }
+
+        function getGroupColor(groupId) {
+            if (!groupColors[groupId]) {
+                const r = Math.floor(Math.random() * 156) + 100;
+                const g = Math.floor(Math.random() * 156) + 100;
+                const b = Math.floor(Math.random() * 156) + 100;
+                groupColors[groupId] = `rgb(${r},${g},${b})`;
+            }
+            return groupColors[groupId];
+        }
+
+        function calculateDistance(x1, y1, x2, y2) {
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Função para desenhar o robô como um quadrado com uma seta
+        function drawRobot() {
+            const robotSize = 10;
+            const arrowSize = -5;
+            const reverseRotation = -rotation;  // Rotaciona o robô ao contrário do mapa
+
+            // Calcula as coordenadas fixas para o robô
+            ctx.save();
+            ctx.rotate(degreesToRadians(reverseRotation));
+            ctx.fillStyle = 'white';
+            ctx.fillRect(-robotSize / 2, -robotSize / 2, robotSize, robotSize);  // Quadrado representando o robô
+
+            // Seta apontando para cima, em relação ao robô, sem rotacionar com o mapa
+            ctx.beginPath();
+            ctx.moveTo(0, -robotSize * 2 - arrowSize);
+            ctx.lineTo(arrowSize, -robotSize / 2 - arrowSize / 4);
+            ctx.lineTo(-arrowSize, -robotSize / 2 - arrowSize / 4);
+            ctx.closePath();
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawMap(data_line) {
+            const pointSize = document.getElementById('pointSizeSlider').value;
+            const maxGroupDistance = document.getElementById('groupDistanceSlider').value;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            data_line = data_line.trim().replace(/_$/, '');
+            const data_segments = data_line.split('_');
+
+            ctx.save();
+            ctx.translate(canvas.width / 2 + panX, canvas.height / 2 + panY);
+            ctx.rotate(degreesToRadians(rotation));  // Rotação do mapa
+            ctx.scale(scale, scale);
+
+            let groups = [];
+
+            // Loop para processar os dados de ângulo e distância
+            data_segments.forEach((segment) => {
+                const [angle, distanceFront, distanceBack] = segment.split(' ').map(Number);
+                const angleRad = degreesToRadians(angle);
+
+                const xFront = Math.cos(angleRad) * distanceFront;
+                const yFront = Math.sin(angleRad) * distanceFront;
+
+                const xBack = Math.cos(angleRad + Math.PI) * distanceBack;
+                const yBack = Math.sin(angleRad + Math.PI) * distanceBack;
+
+                // Adiciona o ponto ao grupo mais próximo
+                function addToGroup(point) {
+                    for (let group of groups) {
+                        const lastPoint = group[group.length - 1];
+                        if (calculateDistance(point.x, point.y, lastPoint.x, lastPoint.y) <= maxGroupDistance) {
+                            group.push(point);
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                // Adiciona os pontos de frente e de trás ao grupo
+                if (!addToGroup({ x: xFront, y: yFront })) {
+                    groups.push([{ x: xFront, y: yFront }]);
+                }
+                if (!addToGroup({ x: xBack, y: yBack })) {
+                    groups.push([{ x: xBack, y: yBack }]);
+                }
+            });
+
+            // Desenha o "robô" como um quadrado com seta, rotacionado no sentido oposto ao mapa
+            drawRobot();
+
+            // Desenha os grupos de pontos coloridos
+            groups.forEach((group, groupId) => {
+                const color = getGroupColor(groupId);
+                group.forEach(point => {
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, pointSize, 0, 2 * Math.PI);
+                    ctx.fill();
+                });
+            });
+
+            ctx.restore();
+        }
+
+        function drawFromInput() {
+            const data = document.getElementById('dataInput').value;
+            drawMap(data);
+        }
+
+        function adjustZoom(delta) {
+            scale = Math.max(0.1, scale + delta * zoomStep);
+            drawFromInput();
+        }
+
+        function adjustRotation(delta) {
+            rotation = (rotation + delta * rotationStep) % 360;
+            drawFromInput();
+        }
+
+        // Eventos de teclado para controle de zoom e rotação
+        window.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case '+':
+                case '=':
+                    adjustZoom(1);
+                    break;
+                case '-':
+                    adjustZoom(-1);
+                    break;
+                case 'q':
+                    adjustRotation(-1);
+                    break;
+                case 'e':
+                    adjustRotation(1);
+                    break;
+            }
+        });
+
+        let isPanning = false, startX, startY;
+
+        // Eventos de arrastar (pan) para mover o mapa
+        canvas.addEventListener('mousedown', (e) => {
+            isPanning = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            drawFromInput();
+        });
+
+        canvas.addEventListener('mouseup', () => isPanning = false);
+        canvas.addEventListener('mouseleave', () => isPanning = false);
+    </script>
+</body>
+</html>
